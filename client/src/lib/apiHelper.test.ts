@@ -3,8 +3,16 @@ import { ApiRequestError, apiRequest } from "./apiHelper";
 import {
   AUTH_EXPIRED_EVENT,
   getAccessToken,
+  getRefreshToken,
   setAuthSession,
 } from "./authToken";
+
+function unauthorizedResponse() {
+  return new Response(JSON.stringify({ code: "UNAUTHORIZED" }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 describe("apiRequest error classification", () => {
   beforeEach(() => {
@@ -61,16 +69,18 @@ describe("apiRequest error classification", () => {
     expect(error).toMatchObject({ code: "SERVER_ERROR", status: 500 });
   });
 
-  it("keeps successful JSON and 204 behavior", async () => {
+  it("keeps successful JSON and 204/205 behavior", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 205 }));
     vi.stubGlobal("fetch", fetchMock);
     await expect(apiRequest("/ok")).resolves.toEqual({ ok: true });
     await expect(apiRequest("/empty")).resolves.toBeUndefined();
+    await expect(apiRequest("/reset")).resolves.toBeUndefined();
   });
 
   it("authenticates protected requests and clears an expired session on 401", async () => {
@@ -94,6 +104,73 @@ describe("apiRequest error classification", () => {
       Authorization: "Bearer signed-jwt",
     });
     expect(getAccessToken()).toBeNull();
+    expect(expired).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes the session once on 401 and retries with the new token (#1185)", async () => {
+    setAuthSession("GWALLET", "stale-jwt", "refresh-jwt");
+    const expired = vi.fn();
+    window.addEventListener(AUTH_EXPIRED_EVENT, expired, { once: true });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(unauthorizedResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            accessToken: "new-jwt",
+            refreshToken: "new-refresh",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiRequest("/cart")).resolves.toEqual({ ok: true });
+
+    expect(fetchMock.mock.calls[1]?.[0]).toContain("/auth/refresh");
+    expect(fetchMock.mock.calls[2]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer new-jwt",
+    });
+    expect(getAccessToken()).toBe("new-jwt");
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it("keeps credentials when the refresh endpoint is temporarily unavailable (#1185)", async () => {
+    setAuthSession("GWALLET", "stale-jwt", "refresh-jwt");
+    const expired = vi.fn();
+    window.addEventListener(AUTH_EXPIRED_EVENT, expired, { once: true });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(unauthorizedResponse())
+      .mockResolvedValueOnce(new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiRequest("/cart")).rejects.toMatchObject({
+      status: 401,
+    });
+
+    expect(getAccessToken()).toBe("stale-jwt");
+    expect(getRefreshToken()).toBe("refresh-jwt");
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it("clears the session when the refresh token itself is rejected (#1185)", async () => {
+    setAuthSession("GWALLET", "stale-jwt", "dead-refresh");
+    const expired = vi.fn();
+    window.addEventListener(AUTH_EXPIRED_EVENT, expired, { once: true });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(unauthorizedResponse())
+      .mockResolvedValueOnce(unauthorizedResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiRequest("/cart")).rejects.toMatchObject({ status: 401 });
+
+    expect(getAccessToken()).toBeNull();
+    expect(getRefreshToken()).toBeNull();
     expect(expired).toHaveBeenCalledOnce();
   });
 });

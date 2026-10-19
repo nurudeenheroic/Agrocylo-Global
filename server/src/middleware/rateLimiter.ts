@@ -1,6 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import type { Request, Response } from 'express';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { ApiError, sendProblem } from '../http/errors.js';
@@ -38,7 +38,9 @@ try {
   sharedRedisClient.on('error', (error: Error) => {
     logger.error('[RateLimit] Redis connection error', { error });
     if (config.nodeEnv === 'production') {
-      logger.error('[RateLimit] CRITICAL: Rate limiting will FAIL CLOSED in production due to Redis unavailability');
+      logger.error(
+        '[RateLimit] CRITICAL: Rate limiting will FAIL CLOSED in production due to Redis unavailability'
+      );
     }
   });
 
@@ -50,7 +52,9 @@ try {
 } catch (error) {
   logger.error('[RateLimit] Failed to initialize Redis client', { error });
   if (config.nodeEnv === 'production') {
-    throw new Error('CRITICAL: Rate limiting requires Redis in production. Set REDIS_URL environment variable.');
+    throw new Error(
+      'CRITICAL: Rate limiting requires Redis in production. Set REDIS_URL environment variable.'
+    );
   }
 }
 
@@ -62,12 +66,16 @@ function rateLimitHandler(req: Request, res: Response): void {
     path: req.path,
     method: req.method,
   });
-  sendProblem(res, req, new ApiError(
-    429,
-    'Too Many Requests',
-    'You have exceeded the request limit. Please try again later.',
-    'https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429',
-  ));
+  sendProblem(
+    res,
+    req,
+    new ApiError(
+      429,
+      'Too Many Requests',
+      'You have exceeded the request limit. Please try again later.',
+      'https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429'
+    )
+  );
 }
 
 /**
@@ -116,7 +124,8 @@ export const nonceWalletRateLimiter = rateLimit({
   handler: rateLimitHandler,
   skip: shouldSkipInTest,
   store: (createStoreForLimiter() as any) || undefined,
-  keyGenerator: (req: Request) => `auth-wallet:${String(req.body?.walletAddress ?? '').toUpperCase()}`,
+  keyGenerator: (req: Request) =>
+    `auth-wallet:${String((req.body as { walletAddress?: unknown } | undefined)?.walletAddress ?? '').toUpperCase()}`,
 });
 
 /**
@@ -186,3 +195,13 @@ export const writeLimiter = rateLimit({
 });
 
 export const writeRateLimiter = writeLimiter;
+
+// 60 analytics batches per minute per IP
+export const analyticsRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skip: shouldSkipInTest,
+});

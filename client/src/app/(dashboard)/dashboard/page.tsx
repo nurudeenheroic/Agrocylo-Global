@@ -71,7 +71,7 @@ function DataErrorBanner({
     <div
       role="status"
       aria-live="assertive"
-      className="flex items-center justify-between gap-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+      className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
     >
       <span className="flex items-center gap-2">
         <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
@@ -110,7 +110,7 @@ function PendingIndexRow({ txHash }: { txHash?: string }) {
         <p className="text-muted-foreground text-xs">
           {txHash ? (
             <a
-              href={https://stellar.expert/explorer/testnet/tx/}
+              href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
               target="_blank"
               rel="noreferrer"
               className="underline"
@@ -169,24 +169,24 @@ function DashboardContent() {
   const stats = [
     {
       label: "Total Revenue",
-      value: ${totalRevenue.toFixed(2)} XLM,
+      value: `${totalRevenue.toFixed(2)} XLM`,
       icon: DollarSign,
       change:
         completed.length > 0
-          ? ${completed.length} completed orders
+          ? `${completed.length} completed orders`
           : "No completed orders yet",
     },
     {
       label: "Active Products",
       value: products.filter((p) => p.is_available).length,
       icon: Package,
-      change: ${products.length} total listed,
+      change: `${products.length} total listed`,
     },
     {
       label: "Total Orders",
       value: orders.length,
       icon: ShoppingBag,
-      change: ${pending.length} awaiting confirmation,
+      change: `${pending.length} awaiting confirmation`,
     },
     {
       label: "Pending Orders",
@@ -246,8 +246,8 @@ function DashboardContent() {
           : stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border bg-card p-6">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 sm:p-6">
           <h2 className="mb-4 font-semibold">Earnings Overview</h2>
           {isLoading ? (
             <Skeleton className="h-80 w-full" />
@@ -255,7 +255,7 @@ function DashboardContent() {
             <EarningsLineChart data={earningsData} />
           )}
         </div>
-        <div className="rounded-2xl border bg-card p-6">
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 sm:p-6">
           <h2 className="mb-4 font-semibold">Orders Breakdown</h2>
           {isLoading ? (
             <Skeleton className="h-80 w-full" />
@@ -297,7 +297,7 @@ function DashboardContent() {
               ) : (
                 <div
                   key={order.orderId}
-                  className="flex items-center justify-between px-6 py-4"
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6"
                 >
                   <div>
                     <p className="text-sm font-medium">Order #{order.orderId}</p>
@@ -305,7 +305,7 @@ function DashboardContent() {
                       {order.buyer?.slice(0, 6)}…{order.buyer?.slice(-4)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                     <StatusBadge status={order.status} />
                     <span className="text-sm font-semibold">
                       {(Number(order.amount ?? 0) / 1e7).toFixed(2)} XLM

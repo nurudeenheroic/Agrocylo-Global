@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
 import { useProfile } from "@/context/ProfileContext";
 import { useAnalytics } from "@/hooks/useAnalytics";
@@ -17,8 +17,9 @@ import Complete from "@/components/onboarding/Complete";
 
 export default function OnboardingPage() {
   const searchParams = useSearchParams();
-  const { address } = useWallet();
-  const { setProfile } = useProfile();
+  const router = useRouter();
+  const { address, reauthenticate } = useWallet();
+  const { setProfile, isLoaded, isOnboarded, profile } = useProfile();
   const { trackFunnelStep, trackFeatureAdoption } = useAnalytics();
 
   const referralFromUrl = searchParams?.get("ref") || "";
@@ -29,6 +30,14 @@ export default function OnboardingPage() {
   const [referralCode, setReferralCode] = useState(referralFromUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // If an onboarded user lands here (e.g. a hard refresh during the final
+  // step, or revisiting the URL), send them to their destination instead of
+  // restarting the wizard.
+  useEffect(() => {
+    if (!isLoaded || !isOnboarded || !profile) return;
+    router.replace(profile.role === "farmer" ? "/dashboard" : "/market");
+  }, [isLoaded, isOnboarded, profile, router]);
 
   function isNetworkFetchError(err: unknown): boolean {
     return (
@@ -73,6 +82,24 @@ export default function OnboardingPage() {
     setError(null);
 
     try {
+      // Establish the wallet auth session FIRST — createProfile/registerLocation
+      // are auth-required, and calling them before reauthenticate() produced the
+      // post-onboarding session-expiry loop (#1185). A rejected signature is
+      // fatal (the seed below would 401 anyway); a transient network blip falls
+      // through to the offline completion path.
+      try {
+        await reauthenticate();
+      } catch (authError) {
+        if (!isNetworkFetchError(authError)) {
+          setError(
+            authError instanceof Error
+              ? authError.message
+              : "Sign in to finish setting up your profile.",
+          );
+          return;
+        }
+      }
+
       const created = await createProfile(
         {
           role,
@@ -81,6 +108,7 @@ export default function OnboardingPage() {
         },
         address,
       );
+
       // Seed the profile cache so AuthGuard sees the user as onboarded immediately,
       // without waiting for a refetch round-trip.
       setProfile(created);
@@ -99,6 +127,8 @@ export default function OnboardingPage() {
           );
         } catch (locationError) {
           console.error("Location registration failed", locationError);
+          // Surface non-fatal error to user
+          alert("Your profile was created successfully, but we couldn't save your location. You can update it later in settings.");
           trackFunnelStep("onboarding_completion", "location_save_failed", {
             reason:
               locationError instanceof Error
@@ -150,7 +180,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="from-secondary/30 to-background flex min-h-screen flex-col items-center bg-gradient-to-b px-4 pt-32 pb-16 md:pt-40">
+    <div className="from-secondary/30 to-background flex min-h-screen flex-col items-center overflow-x-hidden bg-gradient-to-b px-4 pt-32 pb-[calc(env(safe-area-inset-bottom)+4rem)] md:pt-40">
       <div className="w-full max-w-2xl">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">

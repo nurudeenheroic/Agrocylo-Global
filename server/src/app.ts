@@ -1,9 +1,9 @@
 import express from 'express';
 import type { Request, Response } from 'express';
+import path from 'node:path';
 import cors from 'cors';
 import { corsOptions } from './config/cors.js';
 import helmet from 'helmet';
-import * as Sentry from '@sentry/node';
 import logger from './config/logger.js';
 import { config } from './config/index.js';
 import { initializeSentry } from './config/observability.js';
@@ -28,6 +28,7 @@ import locationRoutes, { locationErrorHandler } from './routes/locationRoutes.js
 import notificationRoutes, { notificationErrorHandler } from './routes/notificationRoutes.js';
 import jobRoutes from './routes/jobRoutes.js';
 import demandSupplyRoutes from './routes/demandSupplyRoutes.js';
+import marketRoutes from './routes/marketRoutes.js';
 import metricsRoutes from './routes/metricsRoutes.js';
 import adminRoutes, { adminErrorHandler } from './routes/adminRoutes.js';
 import adminReconciliationRoutes from './routes/adminReconciliationRoutes.js';
@@ -37,10 +38,11 @@ import equipmentRoutes from './routes/equipmentRoutes.js';
 import groupOrderRoutes, { groupOrderErrorHandler } from './routes/groupOrderRoutes.js';
 import referralRoutes, { referralErrorHandler } from './routes/referralRoutes.js';
 import integratorRoutes, { integratorErrorHandler } from './routes/integratorRoutes.js';
-import analyticsRoutes from './routes/analyticsRoutes.js';
+import analyticsRoutes, { analyticsErrorHandler } from './routes/analyticsRoutes.js';
 import governanceRoutes from './routes/governanceRoutes.js';
 import ussdRoutes from './routes/ussdRoutes.js';
 import documentRoutes from './routes/documentRoutes.js';
+import { registerAllEndpoints } from './openapi/endpoints.js';
 
 // Initialize error tracking and tracing
 initializeSentry('api');
@@ -48,8 +50,15 @@ initializeSentry('api');
 const app = express();
 
 // Sentry request handler must be the first middleware (Sentry v8 removed Handlers — guard for tests)
-if ((Sentry as unknown as { Handlers?: { requestHandler: () => import("express").Handler } }).Handlers?.requestHandler) {
-  app.use((Sentry as unknown as { Handlers: { requestHandler: () => import("express").Handler } }).Handlers.requestHandler());
+if (
+  (Sentry as unknown as { Handlers?: { requestHandler: () => import('express').Handler } }).Handlers
+    ?.requestHandler
+) {
+  app.use(
+    (
+      Sentry as unknown as { Handlers: { requestHandler: () => import('express').Handler } }
+    ).Handlers.requestHandler()
+  );
 }
 
 // Trust proxy to correctly extract client IP from X-Forwarded-For
@@ -73,6 +82,7 @@ app.use(
 
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 app.use(requestContext);
 app.use(requestLogger);
 
@@ -100,6 +110,7 @@ app.use('/disputes', disputeRoutes);
 app.use(groupOrderRoutes);
 app.use('/graphql', graphqlRoutes);
 app.use(demandSupplyRoutes);
+app.use(marketRoutes);
 app.use(analyticsRoutes);
 app.use(jobRoutes);
 app.use(cropPlanRoutes);
@@ -167,6 +178,7 @@ app.use(disputeUploadErrorHandler);
 app.use(apiErrorHandler);
 app.use(profileErrorHandler);
 app.use(locationErrorHandler);
+app.use(analyticsErrorHandler);
 app.use(orderErrorHandler);
 app.use(notificationErrorHandler);
 app.use(groupOrderErrorHandler);
@@ -176,8 +188,20 @@ app.use(referralErrorHandler);
 app.use(integratorErrorHandler);
 
 // Sentry error handler must be before other error handlers (guard for v8)
-if ((Sentry as unknown as { Handlers?: { errorHandler: () => import("express").ErrorRequestHandler } }).Handlers?.errorHandler) {
-  app.use((Sentry as unknown as { Handlers: { errorHandler: () => import("express").ErrorRequestHandler } }).Handlers.errorHandler());
+if (
+  (
+    Sentry as unknown as {
+      Handlers?: { errorHandler: () => import('express').ErrorRequestHandler };
+    }
+  ).Handlers?.errorHandler
+) {
+  app.use(
+    (
+      Sentry as unknown as {
+        Handlers: { errorHandler: () => import('express').ErrorRequestHandler };
+      }
+    ).Handlers.errorHandler()
+  );
 }
 
 app.use((err: unknown, req: Request, res: Response, _next: () => void) => {
